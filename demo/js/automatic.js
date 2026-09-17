@@ -48,15 +48,28 @@
     function importData(arr, outdivid) {
       $(outdivid).empty(); // flush messages
 
+      // basic sanity checks on the CSV parse result before it reaches makeDataset()
+      if(!(arr instanceof Array) || arr.length === 0) {
+        FAIL(outdivid, 'no data points found? Make sure the CSV is not empty.');
+        return;
+      }
+
       // find number of datapoints
       N = arr.length;
       var t = [];
       SUCC(outdivid, "found " + N + " data points");
-      if(N === 0) { FAIL(outdivid, 'no data points found?'); return; }
-      
+
       // find dimensionality and enforce consistency
       D = arr[0].length;
+      if(D < 2) {
+        FAIL(outdivid, 'need at least 2 columns (features + label), found ' + D + '.');
+        return;
+      }
       for(var i=0;i<N;i++) {
+        if(!(arr[i] instanceof Array) || arr[i].length === 0) {
+          FAIL(outdivid, 'line ' + i + ' is empty or malformed.');
+          return;
+        }
         var d = arr[i].length;
         if(d !== D) { FAIL(outdivid, 'data dimension not constant: line ' + i + ' has ' + d + ' entries.'); return; }
       }
@@ -84,6 +97,10 @@
 
     var labelix = parseInt($("#labelix").val());
     if(labelix < 0) labelix = D + labelix; // -1 should turn to D-1
+    if(isNaN(labelix) || labelix < 0 || labelix >= D) {
+      console.log('invalid label column index: "' + $("#labelix").val() + '" (data has ' + D + ' columns)');
+      return null;
+    }
 
     var data = [];
     var labels = [];
@@ -309,7 +326,9 @@
       $("#prepromsg").empty(); // flush
       SUCC("#prepromsg", "Sent " + arr_test.length + " data to test, keeping " + arr_train.length + " for train.");
       train_import_data = importData(arr_train,'#datamsg');
+      if(typeof train_import_data === 'undefined' || train_import_data === null) return null;
       train_dataset = makeDataset(train_import_data.arr, train_import_data.colstats);
+      if(train_dataset === null) return null;
       return train_dataset;
     }
 
@@ -317,8 +336,10 @@
       var csv_txt = $('#data-te').val();
       var arr = $.csv.toArrays(csv_txt);
       var import_data = importData(arr,'#datamsgtest');
+      if(typeof import_data === 'undefined' || import_data === null) return null;
       // note important that we use colstats of train data!
       test_dataset = makeDataset(import_data.arr, train_import_data.colstats);
+      if(test_dataset === null) return null;
       return test_dataset;
     }
 

@@ -1,0 +1,8 @@
+# One-command startup for the ConvNetJS demos:
+#   docker compose up
+# then open http://localhost:8080/demo/classify2d.html (or any demo/*.html).
+services:
+  web:
+    build: .
+    ports:
+      - "8080:80"

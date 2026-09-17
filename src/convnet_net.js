@@ -15,6 +15,7 @@
     makeLayers: function(defs) {
 
       // few checks
+      assert(defs instanceof Array, 'Error! layer_defs must be an array of layer definition objects.');
       assert(defs.length >= 2, 'Error! At least one input layer and one loss layer are required.');
       assert(defs[0].type === 'input', 'Error! First layer must be the input layer, to declare size of inputs');
 
@@ -57,7 +58,7 @@
               var gs = def.group_size !== 'undefined' ? def.group_size : 2;
               new_defs.push({type:'maxout', group_size:gs});
             }
-            else { console.log('ERROR unsupported activation ' + def.activation); }
+            else { throw new Error('unsupported activation ' + def.activation); }
           }
           if(typeof def.drop_prob !== 'undefined' && def.type !== 'dropout') {
             new_defs.push({type:'dropout', drop_prob: def.drop_prob});
@@ -93,7 +94,7 @@
           case 'tanh': this.layers.push(new global.TanhLayer(def)); break;
           case 'maxout': this.layers.push(new global.MaxoutLayer(def)); break;
           case 'svm': this.layers.push(new global.SVMLayer(def)); break;
-          default: console.log('ERROR: UNRECOGNIZED LAYER TYPE: ' + def.type);
+          default: throw new Error('unrecognized layer type ' + def.type);
         }
       }
     },

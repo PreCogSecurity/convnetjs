@@ -300,10 +300,19 @@
       for(var k=0;k<9;k++) { this.eyes.push(new Eye((k-3)*0.25)); }
       
       // braaain
-      //this.brain = new deepqlearn.Brain(this.eyes.length * 3, this.actions.length);
-      var spec = document.getElementById('qspec').value;
-      eval(spec);
-      this.brain = brain;
+      // The qspec textarea holds a JSON document (see net_spec.js) instead of
+      // raw JavaScript, so that editing it can never execute arbitrary code.
+      var spec;
+      try {
+        spec = parseBrainSpec(document.getElementById('qspec').value);
+      } catch (e) {
+        alert(e.message);
+        throw e;
+      }
+      var opt = spec.opt;
+      opt.layer_defs = spec.layer_defs;
+      opt.tdtrainer_options = spec.tdtrainer_options;
+      this.brain = new deepqlearn.Brain(spec.num_inputs, spec.num_actions, opt);
       
       this.reward_bonus = 0.0;
       this.digestion_signal = 0.0;

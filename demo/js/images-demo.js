@@ -105,9 +105,7 @@ var loaded_train_batches = [];
 $(window).load(function() {
 
   $("#newnet").val(t);
-  eval($("#newnet").val());
-
-  update_net_param_display();
+  change_net(); // parses the JSON spec, builds net + trainer, resets stats
 
   for(var k=0;k<loaded.length;k++) { loaded[k] = false; }
 
@@ -646,6 +644,16 @@ var load_pretrained = function() {
 }
 
 var change_net = function() {
-  eval($("#newnet").val());
+  var spec;
+  try {
+    spec = parseNetSpec($("#newnet").val());
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+  layer_defs = spec.layer_defs;
+  net = new convnetjs.Net();
+  net.makeLayers(layer_defs);
+  trainer = new convnetjs.SGDTrainer(net, spec.trainer);
   reset_all();
 }

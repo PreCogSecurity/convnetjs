@@ -1,29 +1,26 @@
 
-var t = "\n\
-// lets use an example fully-connected 2-layer ReLU net\n\
-var layer_defs = [];\n\
-layer_defs.push({type:'input', out_sx:24, out_sy:24, out_depth:1});\n\
-layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});\n\
-layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});\n\
-layer_defs.push({type:'softmax', num_classes:10});\n\
-\n\
-// below fill out the trainer specs you wish to evaluate, and give them names for legend\n\
-var LR = 0.01; // learning rate\n\
-var BS = 8; // batch size\n\
-var L2 = 0.001; // L2 weight decay\n\
-nets = [];\n\
-trainer_defs = [];\n\
-trainer_defs.push({learning_rate:LR, method: 'sgd', momentum: 0.0, batch_size:BS, l2_decay:L2});\n\
-trainer_defs.push({learning_rate:LR, method: 'sgd', momentum: 0.9, batch_size:BS, l2_decay:L2});\n\
-trainer_defs.push({learning_rate:LR, method: 'adam', eps: 1e-8, beta1: 0.9, beta2: 0.99, batch_size:BS, l2_decay:L2});\n\
-trainer_defs.push({learning_rate:LR, method: 'adagrad', eps: 1e-6, batch_size:BS, l2_decay:L2});\n\
-trainer_defs.push({learning_rate:LR, method: 'windowgrad', eps: 1e-6, ro: 0.95, batch_size:BS, l2_decay:L2});\n\
-trainer_defs.push({learning_rate:1.0, method: 'adadelta', eps: 1e-6, ro:0.95, batch_size:BS, l2_decay:L2});\n\
-trainer_defs.push({learning_rate:LR, method: 'nesterov', momentum: 0.9, batch_size:BS, l2_decay:L2});\n\
-\n\
-// names for all trainers above\n\
-legend = ['sgd', 'sgd+momentum', 'adam', 'adagrad', 'windowgrad', 'adadelta', 'nesterov'];\n\
-"
+// The textarea holds a JSON document (see net_spec.js) instead of raw
+// JavaScript, so that editing it can never execute arbitrary code.
+var t = JSON.stringify({
+  // an example fully-connected 2-layer ReLU net
+  layer_defs: [
+    {type:'input', out_sx:24, out_sy:24, out_depth:1},
+    {type:'fc', num_neurons:20, activation:'relu'},
+    {type:'fc', num_neurons:20, activation:'relu'},
+    {type:'softmax', num_classes:10}
+  ],
+  // the trainer specs you wish to evaluate, and names for the legend
+  trainer_defs: [
+    {learning_rate:0.01, method:'sgd', momentum:0.0, batch_size:8, l2_decay:0.001},
+    {learning_rate:0.01, method:'sgd', momentum:0.9, batch_size:8, l2_decay:0.001},
+    {learning_rate:0.01, method:'adam', eps:1e-8, beta1:0.9, beta2:0.99, batch_size:8, l2_decay:0.001},
+    {learning_rate:0.01, method:'adagrad', eps:1e-6, batch_size:8, l2_decay:0.001},
+    {learning_rate:0.01, method:'windowgrad', eps:1e-6, ro:0.95, batch_size:8, l2_decay:0.001},
+    {learning_rate:1.0, method:'adadelta', eps:1e-6, ro:0.95, batch_size:8, l2_decay:0.001},
+    {learning_rate:0.01, method:'nesterov', momentum:0.9, batch_size:8, l2_decay:0.001}
+  ],
+  legend: ['sgd', 'sgd+momentum', 'adam', 'adagrad', 'windowgrad', 'adadelta', 'nesterov']
+}, null, 2);
 
 // ------------------------
 // BEGIN MNIST SPECIFIC STUFF
@@ -106,7 +103,16 @@ $(window).load(function() {
 
 var reload = function() {
   
-  eval($("#layerdef").val()); // fills in trainer_spects[] array, and layer_defs
+  var spec;
+  try {
+    spec = parseNetSpec($("#layerdef").val()); // fills in layer_defs, trainer_defs and legend
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+  layer_defs = spec.layer_defs;
+  trainer_defs = spec.trainer_defs;
+  legend = spec.legend;
 
   var N = trainer_defs.length;
   nets = [];
