@@ -1,0 +1,57 @@
+{
+  "root": true,
+  "env": {
+    "browser": true,
+    "node": true,
+    "jasmine": true
+  },
+  "globals": {
+    "convnetjs": "readonly",
+    "Float64Array": "readonly",
+    "parseNetSpec": "readonly",
+    "parseBrainSpec": "readonly"
+  },
+  "parserOptions": {
+    "ecmaVersion": 5
+  },
+  "extends": "eslint:recommended",
+  "rules": {
+    "no-unused-vars": "off",
+    "no-redeclare": "off",
+    "no-empty": "off",
+    "no-constant-condition": "off",
+    "no-extra-semi": "off",
+    "no-inner-declarations": "off",
+    "no-mixed-spaces-and-tabs": "off",
+    "no-irregular-whitespace": "off",
+    "no-useless-escape": "off",
+    "no-prototype-builtins": "off",
+    "no-control-regex": "off",
+    "no-fallthrough": "off",
+    "no-cond-assign": "off",
+    "no-extra-boolean-cast": "off",
+    "no-unexpected-multiline": "off",
+    "no-unsafe-negation": "off",
+    "no-unsafe-finally": "off",
+    "no-unreachable": "off",
+    "no-sparse-arrays": "off",
+    "no-with": "off",
+    "no-octal": "off",
+    "no-regex-spaces": "off",
+    "no-obj-calls": "off",
+    "no-func-assign": "off",
+    "no-dupe-args": "off",
+    "no-dupe-keys": "off",
+    "no-duplicate-case": "off",
+    "no-empty-character-class": "off",
+    "no-ex-assign": "off",
+    "no-invalid-regexp": "off",
+    "no-unused-labels": "off",
+    "no-debugger": "off",
+    "no-template-curly-in-string": "off",
+    "no-undef": "error",
+    "use-isnan": "error",
+    "valid-typeof": "error",
+    "no-eval": "warn"
+  }
+}

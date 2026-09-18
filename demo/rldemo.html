@@ -12,6 +12,7 @@
   <script src="../build/util.js"></script>
   <script src="../build/vis.js"></script>
   <script src="../build/deepqlearn.js"></script>
+  <script src="js/net_spec.js"></script>
   <link rel="stylesheet" href="css/style.css">
   
   <script src="js/rldemo.js"></script>
@@ -45,7 +46,7 @@
    </p>
    <h1>Q-Learner full specification and options</h1>
    <p>
-   The textfield below gets eval()'d to produce the Q-learner for this demo. This allows you to fiddle with 
+   The textfield below is parsed as a JSON document (see <code>js/net_spec.js</code>) to produce the Q-learner for this demo. This allows you to fiddle with 
    various parameters and settings and also shows how you can use the API for your own purposes. 
    All of these settings are optional but are listed to give an idea of possibilities.
    Feel free to change things around and hit reload! Documentation for all
@@ -53,38 +54,34 @@
    comments for every option in the source code javascript file.
    </p>
    <textarea id="qspec" style="width:100%; height:200px;">
-var num_inputs = 27; // 9 eyes, each sees 3 numbers (wall, green, red thing proximity)
-var num_actions = 5; // 5 possible angles agent can turn
-var temporal_window = 1; // amount of temporal memory. 0 = agent lives in-the-moment :)
-var network_size = num_inputs*temporal_window + num_actions*temporal_window + num_inputs;
-
-// the value function network computes a value of taking any of the possible actions
-// given an input state. Here we specify one explicitly the hard way
-// but user could also equivalently instead use opt.hidden_layer_sizes = [20,20]
-// to just insert simple relu hidden layers.
-var layer_defs = [];
-layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth:network_size});
-layer_defs.push({type:'fc', num_neurons: 50, activation:'relu'});
-layer_defs.push({type:'fc', num_neurons: 50, activation:'relu'});
-layer_defs.push({type:'regression', num_neurons:num_actions});
-
-// options for the Temporal Difference learner that trains the above net
-// by backpropping the temporal difference learning rule.
-var tdtrainer_options = {learning_rate:0.001, momentum:0.0, batch_size:64, l2_decay:0.01};
-
-var opt = {};
-opt.temporal_window = temporal_window;
-opt.experience_size = 30000;
-opt.start_learn_threshold = 1000;
-opt.gamma = 0.7;
-opt.learning_steps_total = 200000;
-opt.learning_steps_burnin = 3000;
-opt.epsilon_min = 0.05;
-opt.epsilon_test_time = 0.05;
-opt.layer_defs = layer_defs;
-opt.tdtrainer_options = tdtrainer_options;
-
-var brain = new deepqlearn.Brain(num_inputs, num_actions, opt); // woohoo
+{
+  "num_inputs": 27, // 9 eyes, each sees 3 numbers (wall, green, red thing proximity)
+  "num_actions": 5, // 5 possible angles agent can turn
+  "temporal_window": 1, // amount of temporal memory. 0 = agent lives in-the-moment :)
+  // the value function network computes a value of taking any of the possible actions
+  // given an input state. Here we specify one explicitly the hard way
+  // but user could also equivalently instead use opt.hidden_layer_sizes = [20,20]
+  // to just insert simple relu hidden layers.
+  // network_size = num_inputs*temporal_window + num_actions*temporal_window + num_inputs = 59
+  "layer_defs": [
+    {"type":"input", "out_sx":1, "out_sy":1, "out_depth":59},
+    {"type":"fc", "num_neurons":50, "activation":"relu"},
+    {"type":"fc", "num_neurons":50, "activation":"relu"},
+    {"type":"regression", "num_neurons":5}
+  ],
+  // options for the Temporal Difference learner that trains the above net
+  // by backpropping the temporal difference learning rule.
+  "tdtrainer_options": {"learning_rate":0.001, "momentum":0.0, "batch_size":64, "l2_decay":0.01},
+  "opt": {
+    "experience_size": 30000,
+    "start_learn_threshold": 1000,
+    "gamma": 0.7,
+    "learning_steps_total": 200000,
+    "learning_steps_burnin": 3000,
+    "epsilon_min": 0.05,
+    "epsilon_test_time": 0.05
+  }
+}
    </textarea>
    <button onclick="reload()" style="width: 200px; height: 30px; margin-top: 5px;">Reload</button>
    

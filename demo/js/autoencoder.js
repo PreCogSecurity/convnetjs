@@ -1,20 +1,19 @@
 // globals
 var layer_defs, net, trainer;
-var t = "\
-layer_defs = [];\n\
-layer_defs.push({type:'input', out_sx:28, out_sy:28, out_depth:1});\n\
-layer_defs.push({type:'fc', num_neurons:50, activation:'tanh'});\n\
-layer_defs.push({type:'fc', num_neurons:50, activation:'tanh'});\n\
-layer_defs.push({type:'fc', num_neurons:2});\n\
-layer_defs.push({type:'fc', num_neurons:50, activation:'tanh'});\n\
-layer_defs.push({type:'fc', num_neurons:50, activation:'tanh'});\n\
-layer_defs.push({type:'regression', num_neurons:28*28});\n\
-\n\
-net = new convnetjs.Net();\n\
-net.makeLayers(layer_defs);\n\
-\n\
-trainer = new convnetjs.SGDTrainer(net, {learning_rate:1, method:'adadelta', batch_size:50, l2_decay:0.001, l1_decay:0.001});\n\
-";
+// The textarea holds a JSON document (see net_spec.js) instead of raw
+// JavaScript, so that editing it can never execute arbitrary code.
+var t = JSON.stringify({
+  layer_defs: [
+    {type:'input', out_sx:28, out_sy:28, out_depth:1},
+    {type:'fc', num_neurons:50, activation:'tanh'},
+    {type:'fc', num_neurons:50, activation:'tanh'},
+    {type:'fc', num_neurons:2},
+    {type:'fc', num_neurons:50, activation:'tanh'},
+    {type:'fc', num_neurons:50, activation:'tanh'},
+    {type:'regression', num_neurons:784}
+  ],
+  trainer: {learning_rate:1, method:'adadelta', batch_size:50, l2_decay:0.001, l1_decay:0.001}
+}, null, 2);
 
 // ------------------------
 // BEGIN MNIST SPECIFIC STUFF
@@ -490,6 +489,16 @@ var load_from_json = function() {
   reset_all();
 }
 var change_net = function() {
-  eval($("#newnet").val());
+  var spec;
+  try {
+    spec = parseNetSpec($("#newnet").val());
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+  layer_defs = spec.layer_defs;
+  net = new convnetjs.Net();
+  net.makeLayers(layer_defs);
+  trainer = new convnetjs.SGDTrainer(net, spec.trainer);
   reset_all();
 }

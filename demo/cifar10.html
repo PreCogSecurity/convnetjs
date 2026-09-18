@@ -15,6 +15,7 @@
 
 <script src="js/image-helpers.js"></script>
 <script src="js/pica.js"></script>
+<script src="js/net_spec.js"></script>
 
 <script src="cifar10/cifar10_labels.js"></script>
 <script type="text/javascript">
@@ -33,21 +34,21 @@
   var random_position = true;
 
   var layer_defs, net, trainer;
-  var t = "layer_defs = [];\n\
-  layer_defs.push({type:'input', out_sx:32, out_sy:32, out_depth:3});\n\
-  layer_defs.push({type:'conv', sx:5, filters:16, stride:1, pad:2, activation:'relu'});\n\
-  layer_defs.push({type:'pool', sx:2, stride:2});\n\
-  layer_defs.push({type:'conv', sx:5, filters:20, stride:1, pad:2, activation:'relu'});\n\
-  layer_defs.push({type:'pool', sx:2, stride:2});\n\
-  layer_defs.push({type:'conv', sx:5, filters:20, stride:1, pad:2, activation:'relu'});\n\
-  layer_defs.push({type:'pool', sx:2, stride:2});\n\
-  layer_defs.push({type:'softmax', num_classes:10});\n\
-  \n\
-  net = new convnetjs.Net();\n\
-  net.makeLayers(layer_defs);\n\
-  \n\
-  trainer = new convnetjs.SGDTrainer(net, {method:'adadelta', batch_size:4, l2_decay:0.0001});\n\
-  ";
+  // The textarea holds a JSON document (see net_spec.js) instead of raw
+  // JavaScript, so that editing it can never execute arbitrary code.
+  var t = JSON.stringify({
+    layer_defs: [
+      {type:'input', out_sx:32, out_sy:32, out_depth:3},
+      {type:'conv', sx:5, filters:16, stride:1, pad:2, activation:'relu'},
+      {type:'pool', sx:2, stride:2},
+      {type:'conv', sx:5, filters:20, stride:1, pad:2, activation:'relu'},
+      {type:'pool', sx:2, stride:2},
+      {type:'conv', sx:5, filters:20, stride:1, pad:2, activation:'relu'},
+      {type:'pool', sx:2, stride:2},
+      {type:'softmax', num_classes:10}
+    ],
+    trainer: {method:'adadelta', batch_size:4, l2_decay:0.0001}
+  }, null, 2);
   // ------------------------
   // END CIFAR-10 SPECIFIC STUFF
   // ------------------------

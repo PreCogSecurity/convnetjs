@@ -1,0 +1,33 @@
+{
+  "name": "convnetjs",
+  "version": "0.3.0",
+  "description": "Deep Learning in Javascript. Train Convolutional Neural Networks (or ordinary ones) in your browser.",
+  "main": "build/convnet.js",
+  "files": [
+    "build/",
+    "src/"
+  ],
+  "scripts": {
+    "build": "node compile/build.js",
+    "prepare": "npm run build",
+    "pretest": "npm run build",
+    "test": "jasmine",
+    "lint": "eslint src test/jasmine/spec test/jasmine/helpers demo/js/net_spec.js"
+  },
+  "keywords": [
+    "machine",
+    "learning",
+    "AI",
+    "convnet",
+    "neural",
+    "network"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "jasmine": "^5.13.0"
+  }
+}

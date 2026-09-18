@@ -5,21 +5,31 @@ var ss = 30.0; // scale for drawing
 var layer_defs, net, trainer;
 
 // create neural net
-var t = "layer_defs = [];\n\
-layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth:1});\n\
-layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});\n\
-layer_defs.push({type:'fc', num_neurons:20, activation:'sigmoid'});\n\
-layer_defs.push({type:'regression', num_neurons:1});\n\
-\n\
-net = new convnetjs.Net();\n\
-net.makeLayers(layer_defs);\n\
-\n\
-trainer = new convnetjs.SGDTrainer(net, {learning_rate:0.01, momentum:0.0, batch_size:1, l2_decay:0.001});\n\
-";
+// The textarea holds a JSON document (see net_spec.js) instead of raw
+// JavaScript, so that editing it can never execute arbitrary code.
+var t = JSON.stringify({
+  layer_defs: [
+    {type:'input', out_sx:1, out_sy:1, out_depth:1},
+    {type:'fc', num_neurons:20, activation:'relu'},
+    {type:'fc', num_neurons:20, activation:'sigmoid'},
+    {type:'regression', num_neurons:1}
+  ],
+  trainer: {learning_rate:0.01, momentum:0.0, batch_size:1, l2_decay:0.001}
+}, null, 2);
 
 var lix=2; // layer id of layer we'd like to draw outputs of
 function reload() {
-  eval($("#layerdef").val());
+  var spec;
+  try {
+    spec = parseNetSpec($("#layerdef").val());
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+  layer_defs = spec.layer_defs;
+  net = new convnetjs.Net();
+  net.makeLayers(layer_defs);
+  trainer = new convnetjs.SGDTrainer(net, spec.trainer);
 
   // refresh buttons
   var t = '';

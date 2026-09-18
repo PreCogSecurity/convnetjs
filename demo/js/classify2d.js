@@ -4,21 +4,30 @@ var ss = 50.0; // scale for drawing
 
 // create neural net
 var layer_defs, net, trainer;
-var t = "\n\
-layer_defs = [];\n\
-layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth:2});\n\
-layer_defs.push({type:'fc', num_neurons:6, activation: 'tanh'});\n\
-layer_defs.push({type:'fc', num_neurons:2, activation: 'tanh'});\n\
-layer_defs.push({type:'softmax', num_classes:2});\n\
-\n\
-net = new convnetjs.Net();\n\
-net.makeLayers(layer_defs);\n\
-\n\
-trainer = new convnetjs.SGDTrainer(net, {learning_rate:0.01, momentum:0.1, batch_size:10, l2_decay:0.001});\n\
-";
+// The textarea holds a JSON document (see net_spec.js) instead of raw
+// JavaScript, so that editing it can never execute arbitrary code.
+var t = JSON.stringify({
+  layer_defs: [
+    {type:'input', out_sx:1, out_sy:1, out_depth:2},
+    {type:'fc', num_neurons:6, activation:'tanh'},
+    {type:'fc', num_neurons:2, activation:'tanh'},
+    {type:'softmax', num_classes:2}
+  ],
+  trainer: {learning_rate:0.01, momentum:0.1, batch_size:10, l2_decay:0.001}
+}, null, 2);
 
 function reload() {
-  eval($("#layerdef").val());
+  var spec;
+  try {
+    spec = parseNetSpec($("#layerdef").val());
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+  layer_defs = spec.layer_defs;
+  net = new convnetjs.Net();
+  net.makeLayers(layer_defs);
+  trainer = new convnetjs.SGDTrainer(net, spec.trainer);
 
   // enter buttons for layers
   var t = '';
