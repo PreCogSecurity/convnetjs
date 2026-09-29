@@ -118,6 +118,13 @@
 
     // required
     this.group_size = typeof opt.group_size !== 'undefined' ? opt.group_size : 2;
+    // group_size drives out_depth (in_depth / group_size). A 0 here divides by
+    // zero and yields out_depth === Infinity, a negative or fractional value
+    // yields a non-integer out_depth, and either one later turns into a
+    // RangeError from `new Float64Array` or silent NaN propagation. Reject it
+    // at construction time so the failure is attributable.
+    global.assert(global.isNonNegInt(this.group_size) && this.group_size > 0,
+      'Error! MaxoutLayer group_size must be a positive integer, got: ' + this.group_size);
 
     // computed
     this.out_sx = opt.in_sx;
@@ -221,7 +228,14 @@
       this.out_sy = json.out_sy;
       this.layer_type = json.layer_type; 
       this.group_size = json.group_size;
-      this.switches = global.zeros(this.group_size);
+      global.assert(global.isNonNegInt(this.group_size) && this.group_size > 0,
+        'Error! MaxoutLayer.fromJSON group_size must be a positive integer, got: ' + this.group_size);
+      // NOTE: this used to be zeros(this.group_size). switches holds one entry
+      // per *output* activation (out_sx * out_sy * out_depth), so a restored
+      // maxout net had a heavily undersized switches array; backward() then
+      // read past the end and wrote gradients at undefined indices, poisoning
+      // the parameter gradients with NaN on the first training step after load.
+      this.switches = global.zeros(this.out_sx*this.out_sy*this.out_depth);
     }
   }
 

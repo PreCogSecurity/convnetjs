@@ -298,15 +298,21 @@
     },
 
     fromJSON: function(json) {
+      // Same untrusted-input boundary as Net.fromJSON: validate the envelope
+      // and commit atomically so a corrupt model file cannot leave a partially
+      // populated ensemble behind.
+      global.assert(global.isPlainish(json) && json.nets instanceof Array,
+        'Error! MagicNet.fromJSON expects an object with a "nets" array.');
       this.ensemble_size = json.nets.length;
-      this.evaluated_candidates = [];
+      var evaluated_candidates = [];
       for(var i=0;i<this.ensemble_size;i++) {
         var net = new Net();
         net.fromJSON(json.nets[i]);
         var dummy_candidate = {};
         dummy_candidate.net = net;
-        this.evaluated_candidates.push(dummy_candidate);
+        evaluated_candidates.push(dummy_candidate);
       }
+      this.evaluated_candidates = evaluated_candidates;
     },
 
     // callback functions

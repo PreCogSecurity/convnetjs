@@ -5,9 +5,27 @@ on:
     branches: [master, main]
   pull_request:
 
+# Least privilege: the default GITHUB_TOKEN can write to repository contents.
+# Nothing in this workflow needs write access, so drop it to read-only.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref so a push does not queue behind stale
+# work. Never cancel the branch's own base-branch protection runs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    name: build (node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # .nvmrc is the local pin; CI deliberately tests a range so a release
+        # never lands on a Node version we never exercised.
+        node: ['18', '20', '22']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -15,11 +33,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit dependencies
+        # There are no runtime dependencies; this guards the dev toolchain.
+        # --audit-level=high fails only on high/critical advisories so an
+        # unfixable transitive low-severity notice cannot block every PR.
+        run: npm audit --audit-level=high
 
       - name: Build the library
         run: npm run build
@@ -29,3 +53,40 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Coverage gate
+        # c8 is configured in package.json with check-coverage thresholds, so
+        # this step fails the build if coverage regresses below the ratchet.
+        run: npm run test:coverage
+
+  lint-workflows:
+    name: lint workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: actionlint
+        uses: rhysd/actionlint@v1
+
+  lint-dockerfile:
+    name: lint Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+  compose-config:
+    name: validate docker compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: docker compose config
+        run: docker compose config --quiet

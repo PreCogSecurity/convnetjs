@@ -4,21 +4,42 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
   "use strict";
 
   // Random number utilities
-  var return_v = false;
-  var v_val = 0.0;
+
+  // Marsaglia polar method for standard normal deviates.
+  //
+  // This used to cache the second Box-Muller deviate in module-level state and
+  // recurse to resample rejected pairs. Both were defects:
+  //
+  //  1. The recursion was unbounded. A rejected pair is not rare (p ~ 21.5%),
+  //     but a degenerate or stubbed Math.random -- e.g. anyone seeding
+  //     Math.random with a constant to make training reproducible, a mocked RNG,
+  //     or a poor PRNG -- yields r == 0 or r > 1 *every* time, recursing until
+  //     the engine threw "RangeError: Maximum call stack size exceeded". That
+  //     is a crash-on-input hazard in a library that initialises every weight
+  //     through this path.
+  //  2. The module-level cache was global state, so the Box-Muller "spare"
+  //     leaked across unrelated consumers: reseeding Math.random did not give
+  //     you a reproducible network, and creating a second network perturbed the
+  //     first one's weights. The cached spare also cost a branch on every draw
+  //     in the weight-initialisation hot path.
+  //
+  // Sampling iteratively and returning one deviate per call removes the global
+  // state (nets are now independent and seeding works) and removes the
+  // unbounded recursion. The retry count is bounded so a degenerate RNG
+  // degrades to a zero deviate rather than crashing the caller.
+  var MAX_GAUSS_ATTEMPTS = 100;
   var gaussRandom = function() {
-    if(return_v) { 
-      return_v = false;
-      return v_val; 
+    for(var i=0;i<MAX_GAUSS_ATTEMPTS;i++) {
+      var u = 2*Math.random()-1;
+      var v = 2*Math.random()-1;
+      var r = u*u + v*v;
+      if(r > 0 && r <= 1) {
+        return u * Math.sqrt(-2*Math.log(r)/r);
+      }
     }
-    var u = 2*Math.random()-1;
-    var v = 2*Math.random()-1;
-    var r = u*u + v*v;
-    if(r == 0 || r > 1) return gaussRandom();
-    var c = Math.sqrt(-2*Math.log(r)/r);
-    v_val = v*c; // cache this
-    return_v = true;
-    return u*c;
+    // Degenerate RNG: every pair was rejected. Returning 0.0 keeps the caller
+    // running with zero-initialised weights instead of throwing.
+    return 0.0;
   }
   var randf = function(a, b) { return Math.random()*(b-a)+a; }
   var randi = function(a, b) { return Math.floor(Math.random()*(b-a)+a); }
@@ -124,6 +145,45 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
     }
   }
 
+  // ---- Deserialization guards -------------------------------------------------
+  // Net/Vol fromJSON are routinely handed model files that came from a user
+  // upload, a URL query string or a third party CDN, i.e. untrusted input. The
+  // helpers below make sure malformed or hostile payloads fail loudly and
+  // early instead of being silently coerced into a half-built network (which
+  // then produces confidently wrong predictions) or into a huge allocation.
+
+  // Upper bound on the number of floats a single Vol may allocate. A Vol is
+  // backed by a Float64Array, so `sx * sy * depth` is fully attacker
+  // controlled and a value like 1e9 asks for 8GB and takes the process down.
+  // 1e8 entries is ~800MB, which is already far past any real filter tensor.
+  var MAX_VOL_SIZE = 1e8;
+
+  var isFiniteNumber = function(v) {
+    return typeof v === 'number' && isFinite(v);
+  }
+
+  // non-negative safe integer check that rejects NaN, Infinity, negatives,
+  // fractional and non-numeric values.
+  var isNonNegInt = function(v) {
+    return isFiniteNumber(v) && Math.floor(v) === v && v >= 0;
+  }
+
+  var isPlainish = function(v) {
+    return v !== null && typeof v === 'object';
+  }
+
+  // Validates the dimensions of a Vol and returns the element count.
+  var validateVolDims = function(sx, sy, depth, where) {
+    assert(isNonNegInt(sx), 'Error! ' + where + ' sx must be a non-negative integer, got: ' + sx);
+    assert(isNonNegInt(sy), 'Error! ' + where + ' sy must be a non-negative integer, got: ' + sy);
+    assert(isNonNegInt(depth), 'Error! ' + where + ' depth must be a non-negative integer, got: ' + depth);
+    var n = sx * sy * depth;
+    assert(isNonNegInt(n), 'Error! ' + where + ' dimensions overflow: ' + sx + '*' + sy + '*' + depth);
+    assert(n <= MAX_VOL_SIZE, 'Error! ' + where + ' is too large: ' + n +
+      ' elements requested, the limit is ' + MAX_VOL_SIZE);
+    return n;
+  }
+
   global.randf = randf;
   global.randi = randi;
   global.randn = randn;
@@ -135,6 +195,11 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
   global.arrContains = arrContains;
   global.getopt = getopt;
   global.assert = assert;
+  global.MAX_VOL_SIZE = MAX_VOL_SIZE;
+  global.isFiniteNumber = isFiniteNumber;
+  global.isNonNegInt = isNonNegInt;
+  global.isPlainish = isPlainish;
+  global.validateVolDims = validateVolDims;
   
 })(convnetjs);
 
@@ -233,16 +298,45 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
       // we wont back up gradients to save space
     },
     fromJSON: function(json) {
+      // This is the deserialization entry point for untrusted model files, so
+      // every field is validated before it is used to size an allocation.
+      // Previously a missing/NaN dimension silently produced an *empty* Vol
+      // (because zeros(NaN) returns []) and non-numeric weights were copied
+      // straight into the typed array, so a corrupt file loaded "successfully"
+      // and then returned garbage predictions. Fail loudly instead.
+      var assert = global.assert;
+      var isPlainish = global.isPlainish;
+      var isFiniteNumber = global.isFiniteNumber;
+      var validateVolDims = global.validateVolDims;
+
+      assert(isPlainish(json), 'Error! Vol.fromJSON expects an object, got: ' + (json === null ? 'null' : typeof json));
+
       this.sx = json.sx;
       this.sy = json.sy;
       this.depth = json.depth;
 
-      var n = this.sx*this.sy*this.depth;
+      var n = validateVolDims(this.sx, this.sy, this.depth, 'Vol');
+
+      var w = json.w;
+      assert(w !== null && typeof w === 'object',
+        'Error! Vol.fromJSON requires a "w" array of ' + n + ' numbers.');
+      // NOTE: json.w is not necessarily an Array. Vol.toJSON stores a
+      // Float64Array, and JSON.stringify() serializes a typed array as an
+      // object keyed by stringified index ({"0":..,"1":..}), not as a list --
+      // so every model file that has been through a JSON round trip (i.e. all
+      // of them in practice) has that shape. Accept both, and index defensively.
+      if (typeof w.length === 'number') {
+        assert(w.length >= n, 'Error! Vol.fromJSON expected at least ' + n +
+          ' weights but got ' + w.length + '. Truncated or corrupt model file?');
+      }
+
       this.w = global.zeros(n);
       this.dw = global.zeros(n);
       // copy over the elements.
       for(var i=0;i<n;i++) {
-        this.w[i] = json.w[i];
+        assert(isFiniteNumber(w[i]), 'Error! Vol.fromJSON found a missing or non-numeric weight at index ' +
+          i + ' (' + w[i] + '). Corrupt model file?');
+        this.w[i] = w[i];
       }
     }
   }
@@ -1164,6 +1258,13 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
 
     // required
     this.group_size = typeof opt.group_size !== 'undefined' ? opt.group_size : 2;
+    // group_size drives out_depth (in_depth / group_size). A 0 here divides by
+    // zero and yields out_depth === Infinity, a negative or fractional value
+    // yields a non-integer out_depth, and either one later turns into a
+    // RangeError from `new Float64Array` or silent NaN propagation. Reject it
+    // at construction time so the failure is attributable.
+    global.assert(global.isNonNegInt(this.group_size) && this.group_size > 0,
+      'Error! MaxoutLayer group_size must be a positive integer, got: ' + this.group_size);
 
     // computed
     this.out_sx = opt.in_sx;
@@ -1267,7 +1368,14 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
       this.out_sy = json.out_sy;
       this.layer_type = json.layer_type; 
       this.group_size = json.group_size;
-      this.switches = global.zeros(this.group_size);
+      global.assert(global.isNonNegInt(this.group_size) && this.group_size > 0,
+        'Error! MaxoutLayer.fromJSON group_size must be a positive integer, got: ' + this.group_size);
+      // NOTE: this used to be zeros(this.group_size). switches holds one entry
+      // per *output* activation (out_sx * out_sy * out_depth), so a restored
+      // maxout net had a heavily undersized switches array; backward() then
+      // read past the end and wrote gradients at undefined indices, poisoning
+      // the parameter gradients with NaN on the first training step after load.
+      this.switches = global.zeros(this.out_sx*this.out_sy*this.out_depth);
     }
   }
 
@@ -1531,6 +1639,7 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
   "use strict";
   var Vol = global.Vol; // convenience
   var assert = global.assert;
+  var isPlainish = global.isPlainish;
 
   // Net manages a set of layers
   // For now constraints: Simple linear order of layers, first layer input last layer a cost layer
@@ -1584,7 +1693,14 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
             else if (def.activation==='tanh') { new_defs.push({type:'tanh'}); }
             else if (def.activation==='maxout') {
               // create maxout activation, and pass along group size, if provided
-              var gs = def.group_size !== 'undefined' ? def.group_size : 2;
+              // NOTE: this used to read `def.group_size !== 'undefined'`, which
+              // compares the *value* against the string 'undefined' and so was
+              // always true -- a default of group_size=undefined was pushed
+              // through and only survived because MaxoutLayer re-applied its own
+              // default. An explicit null/0 slipped past and produced NaN or
+              // infinite out_depth. Validate properly now.
+              var gs = typeof def.group_size !== 'undefined' ? def.group_size : 2;
+              assert(global.isNonNegInt(gs) && gs > 0, 'Error! maxout group_size must be a positive integer, got: ' + gs);
               new_defs.push({type:'maxout', group_size:gs});
             }
             else { throw new Error('unsupported activation ' + def.activation); }
@@ -1690,27 +1806,48 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
       return json;
     },
     fromJSON: function(json) {
-      this.layers = [];
+      // Model files are frequently user supplied or fetched from a URL, so this
+      // is untrusted-input boundary. Validate up front and build into a
+      // local array: a rejected payload must leave `this` untouched rather than
+      // leaving a half-built network behind that the caller will happily keep
+      // using (and that would then emit confidently wrong predictions).
+      assert(isPlainish(json), 'Error! Net.fromJSON expects an object with a "layers" array, got: ' +
+        (json === null ? 'null' : typeof json));
+      assert(json.layers instanceof Array, 'Error! Net.fromJSON expects json.layers to be an array.');
+
+      var known = {
+        'input': global.InputLayer,
+        'relu': global.ReluLayer,
+        'sigmoid': global.SigmoidLayer,
+        'tanh': global.TanhLayer,
+        'dropout': global.DropoutLayer,
+        'conv': global.ConvLayer,
+        'pool': global.PoolLayer,
+        'lrn': global.LocalResponseNormalizationLayer,
+        'softmax': global.SoftmaxLayer,
+        'regression': global.RegressionLayer,
+        'fc': global.FullyConnLayer,
+        'maxout': global.MaxoutLayer,
+        'svm': global.SVMLayer
+      };
+
+      var layers = [];
       for(var i=0;i<json.layers.length;i++) {
-        var Lj = json.layers[i]
+        var Lj = json.layers[i];
+        assert(isPlainish(Lj), 'Error! Net.fromJSON: layer ' + i + ' is not an object.');
         var t = Lj.layer_type;
-        var L;
-        if(t==='input') { L = new global.InputLayer(); }
-        if(t==='relu') { L = new global.ReluLayer(); }
-        if(t==='sigmoid') { L = new global.SigmoidLayer(); }
-        if(t==='tanh') { L = new global.TanhLayer(); }
-        if(t==='dropout') { L = new global.DropoutLayer(); }
-        if(t==='conv') { L = new global.ConvLayer(); }
-        if(t==='pool') { L = new global.PoolLayer(); }
-        if(t==='lrn') { L = new global.LocalResponseNormalizationLayer(); }
-        if(t==='softmax') { L = new global.SoftmaxLayer(); }
-        if(t==='regression') { L = new global.RegressionLayer(); }
-        if(t==='fc') { L = new global.FullyConnLayer(); }
-        if(t==='maxout') { L = new global.MaxoutLayer(); }
-        if(t==='svm') { L = new global.SVMLayer(); }
+        var Ctor = Object.prototype.hasOwnProperty.call(known, t) ? known[t] : null;
+        // Previously an unrecognized type left L undefined and blew up with an
+        // opaque "Cannot read properties of undefined" TypeError.
+        assert(Ctor !== null, 'Error! Net.fromJSON: unrecognized layer type ' + JSON.stringify(t) +
+          ' at index ' + i + '.');
+        var L = new Ctor();
         L.fromJSON(Lj);
-        this.layers.push(L);
+        layers.push(L);
       }
+
+      // commit only once every layer deserialized cleanly
+      this.layers = layers;
     }
   }
   
@@ -2174,15 +2311,21 @@ var convnetjs = convnetjs || { REVISION: 'ALPHA' };
     },
 
     fromJSON: function(json) {
+      // Same untrusted-input boundary as Net.fromJSON: validate the envelope
+      // and commit atomically so a corrupt model file cannot leave a partially
+      // populated ensemble behind.
+      global.assert(global.isPlainish(json) && json.nets instanceof Array,
+        'Error! MagicNet.fromJSON expects an object with a "nets" array.');
       this.ensemble_size = json.nets.length;
-      this.evaluated_candidates = [];
+      var evaluated_candidates = [];
       for(var i=0;i<this.ensemble_size;i++) {
         var net = new Net();
         net.fromJSON(json.nets[i]);
         var dummy_candidate = {};
         dummy_candidate.net = net;
-        this.evaluated_candidates.push(dummy_candidate);
+        evaluated_candidates.push(dummy_candidate);
       }
+      this.evaluated_candidates = evaluated_candidates;
     },
 
     // callback functions

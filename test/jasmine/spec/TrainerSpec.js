@@ -62,45 +62,56 @@ describe("Trainers (sgd / adagrad / adadelta / adam / nesterov)", function() {
     var trainer = new convnetjs.Trainer(net, options);
     var ds = makeData(20);
 
-    var first_loss = null;
-    var last_loss = null;
+    // Compare the mean loss over a leading window against a trailing window
+    // rather than a single first and last sample. This is single-example
+    // (batch_size 1) training, so any individual step is noisy -- especially
+    // for the adaptive methods -- and a two-point comparison passed or failed
+    // on the order in which specs happened to consume the RNG stream.
+    var window = Math.max(1, Math.floor(iters / 10));
+    var head = 0.0;
+    var tail = 0.0;
+    var losses = [];
     for (var i = 0; i < iters; i++) {
       var ix = i % ds.data.length;
       var stats = trainer.train(ds.data[ix], ds.labels[ix]);
-      if (i === 0) { first_loss = stats.cost_loss; }
-      last_loss = stats.cost_loss;
+      losses.push(stats.cost_loss);
     }
-    return {first_loss: first_loss, last_loss: last_loss};
+    for (var a = 0; a < window; a++) {
+      head += losses[a];
+      tail += losses[iters - window + a];
+    }
+    return {first_loss: losses[0], last_loss: losses[iters - 1],
+            head_loss: head / window, tail_loss: tail / window};
   }
 
   it("should decrease loss with vanilla SGD", function() {
     var r = trainFor('sgd', {momentum: 0.0}, 200);
-    expect(r.last_loss).toBeLessThan(r.first_loss);
+    expect(r.tail_loss).toBeLessThan(r.head_loss);
   });
 
   it("should decrease loss with SGD + momentum", function() {
     var r = trainFor('sgd', {momentum: 0.9}, 200);
-    expect(r.last_loss).toBeLessThan(r.first_loss);
+    expect(r.tail_loss).toBeLessThan(r.head_loss);
   });
 
   it("should decrease loss with adagrad", function() {
     var r = trainFor('adagrad', {}, 200);
-    expect(r.last_loss).toBeLessThan(r.first_loss);
+    expect(r.tail_loss).toBeLessThan(r.head_loss);
   });
 
   it("should decrease loss with adadelta", function() {
     var r = trainFor('adadelta', {learning_rate: 1.0}, 200);
-    expect(r.last_loss).toBeLessThan(r.first_loss);
+    expect(r.tail_loss).toBeLessThan(r.head_loss);
   });
 
   it("should decrease loss with adam", function() {
     var r = trainFor('adam', {}, 200);
-    expect(r.last_loss).toBeLessThan(r.first_loss);
+    expect(r.tail_loss).toBeLessThan(r.head_loss);
   });
 
   it("should decrease loss with nesterov", function() {
     var r = trainFor('nesterov', {momentum: 0.9}, 200);
-    expect(r.last_loss).toBeLessThan(r.first_loss);
+    expect(r.tail_loss).toBeLessThan(r.head_loss);
   });
 
   it("should report training statistics", function() {

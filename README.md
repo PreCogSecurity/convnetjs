@@ -63,6 +63,10 @@ docker compose up
 # then open http://localhost:8080/demo/classify2d.html
 ```
 
+The Compose service binds to **loopback only** (`127.0.0.1:8080:80`) and runs with a read-only root filesystem, `no-new-privileges`, and nginx as a non-root user. The demo site is unauthenticated, so it should not be published on a routable interface by accident. To reach it from another host, change the port mapping deliberately.
+
+Note that the image contains only `build/`, `demo/`, `LICENSE` and `README.md`. The repository history (`.git/`) and `node_modules/` are excluded by `.dockerignore` and are not part of the image.
+
 ### Available Demos
 
 - [Convolutional Neural Network on MNIST digits](demo/mnist.html)
@@ -83,10 +87,53 @@ npm test
 
 This rebuilds the library from `src/` and then runs the Jasmine test suite in `test/jasmine/`.
 
+### Coverage
+
+```bash
+npm run test:coverage
+```
+
+Runs the suite under [`c8`](https://github.com/bcoe/c8) and writes a text summary plus LCOV output to `coverage/`. The thresholds live in the `c8` block in `package.json` and are enforced (`check-coverage`), so the command exits non-zero if coverage drops below them. CI runs this as a gate, which is what stops an untested change from silently landing.
+
 ## Linting
 
 ```bash
 npm run lint
+```
+
+## Loading models safely
+
+`Net.fromJSON` and `MagicNet.fromJSON` are the entry points for model files, and model files frequently arrive from a user upload or a remote URL. Treat them as untrusted input, because that is what they are:
+
+- Dimensions and weight values are validated before anything is allocated. A missing or non-numeric dimension now raises a clear error instead of quietly producing an empty `Vol` that loads "successfully" and then returns garbage predictions.
+- A volume larger than `convnetjs.MAX_VOL_SIZE` (100,000,000 elements) is rejected, so a hostile `sx * sy * depth` cannot ask the host for gigabytes and take the process down.
+- An unrecognized `layer_type` raises an error naming the type, rather than an opaque `TypeError`.
+- Layer construction is looked up with a prototype-safe check, so a crafted `layer_type` of `constructor` or `__proto__` cannot resolve to a built-in.
+- Loading is **atomic**: layers are built into a temporary list and only committed once every layer deserialized cleanly. A rejected payload leaves your existing network untouched rather than half-replaced.
+
+```javascript
+var net = new convnetjs.Net();
+try {
+  net.fromJSON(JSON.parse(untrustedJson));
+} catch (e) {
+  // e.message names the offending field or layer index
+  console.warn('rejecting model file:', e.message);
+}
+```
+
+`net.toJSON()` stores weights in a `Float64Array`, and `JSON.stringify` serializes a typed array as an object keyed by stringified index rather than as a list. `fromJSON` accepts both that shape and a plain array, so a round trip through `JSON.stringify` is safe.
+
+## Reproducible runs
+
+`randn` is now stateless: it samples iteratively (Marsaglia polar method) instead of caching the spare Box-Muller deviate in module-level state. Two consequences worth knowing:
+
+- Seeding `Math.random` now actually gives you reproducible weight initialization. Previously the cached spare leaked between unrelated networks, so a second network perturbed the first one's weights.
+- A constant or stubbed `Math.random` no longer crashes the library. The old implementation recursed on rejected sample pairs without bound, so a degenerate RNG exhausted the call stack and threw `RangeError: Maximum call stack size exceeded`.
+
+```javascript
+Math.random = mySeededRandom;   // now sufficient for reproducibility
+var net = new convnetjs.Net();
+net.makeLayers(layer_defs);
 ```
 
 ## Example Code
@@ -190,6 +237,14 @@ These are concatenated (in dependency order) by `compile/build.js` into the sing
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for coding style guidelines and instructions on adding a new layer type with matching test specs.
+
+## Releasing
+
+See [RELEASE.md](RELEASE.md) for the tag-and-publish flow, including the one-time npm Trusted Publishing setup.
+
+## Security
+
+Please report vulnerabilities privately rather than in a public issue. See [SECURITY.md](SECURITY.md) for the disclosure policy and supported versions.
 
 ## License
 

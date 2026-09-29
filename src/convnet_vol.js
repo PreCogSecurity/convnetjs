@@ -93,16 +93,45 @@
       // we wont back up gradients to save space
     },
     fromJSON: function(json) {
+      // This is the deserialization entry point for untrusted model files, so
+      // every field is validated before it is used to size an allocation.
+      // Previously a missing/NaN dimension silently produced an *empty* Vol
+      // (because zeros(NaN) returns []) and non-numeric weights were copied
+      // straight into the typed array, so a corrupt file loaded "successfully"
+      // and then returned garbage predictions. Fail loudly instead.
+      var assert = global.assert;
+      var isPlainish = global.isPlainish;
+      var isFiniteNumber = global.isFiniteNumber;
+      var validateVolDims = global.validateVolDims;
+
+      assert(isPlainish(json), 'Error! Vol.fromJSON expects an object, got: ' + (json === null ? 'null' : typeof json));
+
       this.sx = json.sx;
       this.sy = json.sy;
       this.depth = json.depth;
 
-      var n = this.sx*this.sy*this.depth;
+      var n = validateVolDims(this.sx, this.sy, this.depth, 'Vol');
+
+      var w = json.w;
+      assert(w !== null && typeof w === 'object',
+        'Error! Vol.fromJSON requires a "w" array of ' + n + ' numbers.');
+      // NOTE: json.w is not necessarily an Array. Vol.toJSON stores a
+      // Float64Array, and JSON.stringify() serializes a typed array as an
+      // object keyed by stringified index ({"0":..,"1":..}), not as a list --
+      // so every model file that has been through a JSON round trip (i.e. all
+      // of them in practice) has that shape. Accept both, and index defensively.
+      if (typeof w.length === 'number') {
+        assert(w.length >= n, 'Error! Vol.fromJSON expected at least ' + n +
+          ' weights but got ' + w.length + '. Truncated or corrupt model file?');
+      }
+
       this.w = global.zeros(n);
       this.dw = global.zeros(n);
       // copy over the elements.
       for(var i=0;i<n;i++) {
-        this.w[i] = json.w[i];
+        assert(isFiniteNumber(w[i]), 'Error! Vol.fromJSON found a missing or non-numeric weight at index ' +
+          i + ' (' + w[i] + '). Corrupt model file?');
+        this.w[i] = w[i];
       }
     }
   }
