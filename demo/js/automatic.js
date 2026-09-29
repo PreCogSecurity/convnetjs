@@ -98,7 +98,10 @@
     var labelix = parseInt($("#labelix").val());
     if(labelix < 0) labelix = D + labelix; // -1 should turn to D-1
     if(isNaN(labelix) || labelix < 0 || labelix >= D) {
-      console.log('invalid label column index: "' + $("#labelix").val() + '" (data has ' + D + ' columns)');
+      demoLog.error('invalid label column index', {
+        requested: String($("#labelix").val()),
+        columns: D
+      });
       return null;
     }
 
@@ -132,7 +135,11 @@
       } else {
         var L = colstats[labelix].uniques.indexOf(arri[labelix]); // classification
         if(L==-1) {
-          console.log('whoa label not found! CRITICAL ERROR, very fishy.');
+          demoLog.error('label not found in the unique label list', {
+            row: i,
+            column: labelix,
+            value: String(arri[labelix])
+          });
         }
       }
       data.push(x);
@@ -170,7 +177,8 @@
       }
       var l = test_dataset.labels[i];
       acc += (yhat === l ? 1 : 0); // 0-1 loss
-      console.log('test example ' + i + ': predicting ' + yhat + ', ground truth is ' + l);
+      // per-example detail: debug level so it is off by default
+      demoLog.debug('test example', {index: i, predicted: yhat, actual: l});
     }
     acc /= n;
 

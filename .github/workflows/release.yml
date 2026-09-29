@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# Publishing needs an OIDC token to mint npm provenance attestations, and
+# nothing else. contents: read is all the checkout step requires.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # The npm CLI bundled with this Node line supports provenance and
+          # OIDC trusted publishing.
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify the tag matches package.json
+        # A tag that disagrees with the manifest is how the wrong version ends
+        # up published; catch it before the irreversible step.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Build and test
+        run: |
+          npm run build
+          npm run lint
+          npm test
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          # Preferred path: with npm Trusted Publishing configured (see
+          # RELEASE.md) the registry authenticates this job via its OIDC
+          # identity and no secret is involved at all -- an unset
+          # NPM_TOKEN resolves to an empty string and the publish still
+          # succeeds. The fallback below keeps the first release working
+          # before that one-time setup is done; delete it, and the repo
+          # secret with it, once Trusted Publishing is live.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -2,6 +2,7 @@
   "use strict";
   var Vol = global.Vol; // convenience
   var assert = global.assert;
+  var isPlainish = global.isPlainish;
 
   // Net manages a set of layers
   // For now constraints: Simple linear order of layers, first layer input last layer a cost layer
@@ -55,7 +56,14 @@
             else if (def.activation==='tanh') { new_defs.push({type:'tanh'}); }
             else if (def.activation==='maxout') {
               // create maxout activation, and pass along group size, if provided
-              var gs = def.group_size !== 'undefined' ? def.group_size : 2;
+              // NOTE: this used to read `def.group_size !== 'undefined'`, which
+              // compares the *value* against the string 'undefined' and so was
+              // always true -- a default of group_size=undefined was pushed
+              // through and only survived because MaxoutLayer re-applied its own
+              // default. An explicit null/0 slipped past and produced NaN or
+              // infinite out_depth. Validate properly now.
+              var gs = typeof def.group_size !== 'undefined' ? def.group_size : 2;
+              assert(global.isNonNegInt(gs) && gs > 0, 'Error! maxout group_size must be a positive integer, got: ' + gs);
               new_defs.push({type:'maxout', group_size:gs});
             }
             else { throw new Error('unsupported activation ' + def.activation); }
@@ -161,27 +169,48 @@
       return json;
     },
     fromJSON: function(json) {
-      this.layers = [];
+      // Model files are frequently user supplied or fetched from a URL, so this
+      // is untrusted-input boundary. Validate up front and build into a
+      // local array: a rejected payload must leave `this` untouched rather than
+      // leaving a half-built network behind that the caller will happily keep
+      // using (and that would then emit confidently wrong predictions).
+      assert(isPlainish(json), 'Error! Net.fromJSON expects an object with a "layers" array, got: ' +
+        (json === null ? 'null' : typeof json));
+      assert(json.layers instanceof Array, 'Error! Net.fromJSON expects json.layers to be an array.');
+
+      var known = {
+        'input': global.InputLayer,
+        'relu': global.ReluLayer,
+        'sigmoid': global.SigmoidLayer,
+        'tanh': global.TanhLayer,
+        'dropout': global.DropoutLayer,
+        'conv': global.ConvLayer,
+        'pool': global.PoolLayer,
+        'lrn': global.LocalResponseNormalizationLayer,
+        'softmax': global.SoftmaxLayer,
+        'regression': global.RegressionLayer,
+        'fc': global.FullyConnLayer,
+        'maxout': global.MaxoutLayer,
+        'svm': global.SVMLayer
+      };
+
+      var layers = [];
       for(var i=0;i<json.layers.length;i++) {
-        var Lj = json.layers[i]
+        var Lj = json.layers[i];
+        assert(isPlainish(Lj), 'Error! Net.fromJSON: layer ' + i + ' is not an object.');
         var t = Lj.layer_type;
-        var L;
-        if(t==='input') { L = new global.InputLayer(); }
-        if(t==='relu') { L = new global.ReluLayer(); }
-        if(t==='sigmoid') { L = new global.SigmoidLayer(); }
-        if(t==='tanh') { L = new global.TanhLayer(); }
-        if(t==='dropout') { L = new global.DropoutLayer(); }
-        if(t==='conv') { L = new global.ConvLayer(); }
-        if(t==='pool') { L = new global.PoolLayer(); }
-        if(t==='lrn') { L = new global.LocalResponseNormalizationLayer(); }
-        if(t==='softmax') { L = new global.SoftmaxLayer(); }
-        if(t==='regression') { L = new global.RegressionLayer(); }
-        if(t==='fc') { L = new global.FullyConnLayer(); }
-        if(t==='maxout') { L = new global.MaxoutLayer(); }
-        if(t==='svm') { L = new global.SVMLayer(); }
+        var Ctor = Object.prototype.hasOwnProperty.call(known, t) ? known[t] : null;
+        // Previously an unrecognized type left L undefined and blew up with an
+        // opaque "Cannot read properties of undefined" TypeError.
+        assert(Ctor !== null, 'Error! Net.fromJSON: unrecognized layer type ' + JSON.stringify(t) +
+          ' at index ' + i + '.');
+        var L = new Ctor();
         L.fromJSON(Lj);
-        this.layers.push(L);
+        layers.push(L);
       }
+
+      // commit only once every layer deserialized cleanly
+      this.layers = layers;
     }
   }
   

@@ -70,7 +70,7 @@ $(window).load(function() {
 
 var start_fun = function() {
   if(loaded[0] && loaded[20]) { 
-    console.log('starting!'); 
+    demoLog.info('starting', {demo: 'autoencoder'});
     setInterval(load_and_step, 0); // lets go!
   }
   else { setTimeout(start_fun, 200); } // keep checking
@@ -89,7 +89,7 @@ var load_data_batch = function(batch_num) {
     img_data[batch_num] = data_ctx.getImageData(0, 0, data_canvas.width, data_canvas.height);
     loaded[batch_num] = true;
     if(batch_num < 20) { loaded_train_batches.push(batch_num); }
-    console.log('finished loading data batch ' + batch_num);
+    demoLog.info('finished loading data batch', {batch: batch_num});
   };
   data_img_elt.src = "mnist/mnist_batch_" + batch_num + ".png";
 }

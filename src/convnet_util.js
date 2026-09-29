@@ -2,21 +2,42 @@
   "use strict";
 
   // Random number utilities
-  var return_v = false;
-  var v_val = 0.0;
+
+  // Marsaglia polar method for standard normal deviates.
+  //
+  // This used to cache the second Box-Muller deviate in module-level state and
+  // recurse to resample rejected pairs. Both were defects:
+  //
+  //  1. The recursion was unbounded. A rejected pair is not rare (p ~ 21.5%),
+  //     but a degenerate or stubbed Math.random -- e.g. anyone seeding
+  //     Math.random with a constant to make training reproducible, a mocked RNG,
+  //     or a poor PRNG -- yields r == 0 or r > 1 *every* time, recursing until
+  //     the engine threw "RangeError: Maximum call stack size exceeded". That
+  //     is a crash-on-input hazard in a library that initialises every weight
+  //     through this path.
+  //  2. The module-level cache was global state, so the Box-Muller "spare"
+  //     leaked across unrelated consumers: reseeding Math.random did not give
+  //     you a reproducible network, and creating a second network perturbed the
+  //     first one's weights. The cached spare also cost a branch on every draw
+  //     in the weight-initialisation hot path.
+  //
+  // Sampling iteratively and returning one deviate per call removes the global
+  // state (nets are now independent and seeding works) and removes the
+  // unbounded recursion. The retry count is bounded so a degenerate RNG
+  // degrades to a zero deviate rather than crashing the caller.
+  var MAX_GAUSS_ATTEMPTS = 100;
   var gaussRandom = function() {
-    if(return_v) { 
-      return_v = false;
-      return v_val; 
+    for(var i=0;i<MAX_GAUSS_ATTEMPTS;i++) {
+      var u = 2*Math.random()-1;
+      var v = 2*Math.random()-1;
+      var r = u*u + v*v;
+      if(r > 0 && r <= 1) {
+        return u * Math.sqrt(-2*Math.log(r)/r);
+      }
     }
-    var u = 2*Math.random()-1;
-    var v = 2*Math.random()-1;
-    var r = u*u + v*v;
-    if(r == 0 || r > 1) return gaussRandom();
-    var c = Math.sqrt(-2*Math.log(r)/r);
-    v_val = v*c; // cache this
-    return_v = true;
-    return u*c;
+    // Degenerate RNG: every pair was rejected. Returning 0.0 keeps the caller
+    // running with zero-initialised weights instead of throwing.
+    return 0.0;
   }
   var randf = function(a, b) { return Math.random()*(b-a)+a; }
   var randi = function(a, b) { return Math.floor(Math.random()*(b-a)+a); }
@@ -122,6 +143,45 @@
     }
   }
 
+  // ---- Deserialization guards -------------------------------------------------
+  // Net/Vol fromJSON are routinely handed model files that came from a user
+  // upload, a URL query string or a third party CDN, i.e. untrusted input. The
+  // helpers below make sure malformed or hostile payloads fail loudly and
+  // early instead of being silently coerced into a half-built network (which
+  // then produces confidently wrong predictions) or into a huge allocation.
+
+  // Upper bound on the number of floats a single Vol may allocate. A Vol is
+  // backed by a Float64Array, so `sx * sy * depth` is fully attacker
+  // controlled and a value like 1e9 asks for 8GB and takes the process down.
+  // 1e8 entries is ~800MB, which is already far past any real filter tensor.
+  var MAX_VOL_SIZE = 1e8;
+
+  var isFiniteNumber = function(v) {
+    return typeof v === 'number' && isFinite(v);
+  }
+
+  // non-negative safe integer check that rejects NaN, Infinity, negatives,
+  // fractional and non-numeric values.
+  var isNonNegInt = function(v) {
+    return isFiniteNumber(v) && Math.floor(v) === v && v >= 0;
+  }
+
+  var isPlainish = function(v) {
+    return v !== null && typeof v === 'object';
+  }
+
+  // Validates the dimensions of a Vol and returns the element count.
+  var validateVolDims = function(sx, sy, depth, where) {
+    assert(isNonNegInt(sx), 'Error! ' + where + ' sx must be a non-negative integer, got: ' + sx);
+    assert(isNonNegInt(sy), 'Error! ' + where + ' sy must be a non-negative integer, got: ' + sy);
+    assert(isNonNegInt(depth), 'Error! ' + where + ' depth must be a non-negative integer, got: ' + depth);
+    var n = sx * sy * depth;
+    assert(isNonNegInt(n), 'Error! ' + where + ' dimensions overflow: ' + sx + '*' + sy + '*' + depth);
+    assert(n <= MAX_VOL_SIZE, 'Error! ' + where + ' is too large: ' + n +
+      ' elements requested, the limit is ' + MAX_VOL_SIZE);
+    return n;
+  }
+
   global.randf = randf;
   global.randi = randi;
   global.randn = randn;
@@ -133,5 +193,10 @@
   global.arrContains = arrContains;
   global.getopt = getopt;
   global.assert = assert;
+  global.MAX_VOL_SIZE = MAX_VOL_SIZE;
+  global.isFiniteNumber = isFiniteNumber;
+  global.isNonNegInt = isNonNegInt;
+  global.isPlainish = isPlainish;
+  global.validateVolDims = validateVolDims;
   
 })(convnetjs);

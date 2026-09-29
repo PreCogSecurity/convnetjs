@@ -1,0 +1,25 @@
+# Keep the build context small and, more importantly, keep sensitive and
+# irrelevant paths out of the image. Without this, `COPY . /usr/share/nginx/html`
+# publishes the whole .git/ directory (complete repository history) and
+# node_modules/ over HTTP to anyone who can reach the container.
+.git
+.github
+.gitignore
+node_modules
+coverage
+.nyc_output
+test
+compile
+spec
+*.log
+Dockerfile
+.dockerignore
+docker-compose.yml
+package.json
+package-lock.json
+.eslintrc.json
+.nvmrc
+bower.json
+CONTRIBUTING.md
+CHANGELOG.md
+SECURITY.md

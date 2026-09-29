@@ -1,8 +1,27 @@
 # One-command startup for the ConvNetJS demos:
 #   docker compose up
 # then open http://localhost:8080/demo/classify2d.html (or any demo/*.html).
+#
+# This serves an uncredentialed static site, so it is bound to the loopback
+# interface by default. Publishing it on all interfaces is a one-word change,
+# but it should be a deliberate one rather than the default.
 services:
   web:
     build: .
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
+    read_only: true
+    tmpfs:
+      # nginx needs a writable cache and scratch space; keep the rest of the
+      # filesystem read-only so a compromised process cannot rewrite the image.
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

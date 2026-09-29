@@ -5,9 +5,27 @@ on:
     branches: [master, main]
   pull_request:
 
+# Least privilege: the default GITHUB_TOKEN can write to repository contents.
+# Nothing in this workflow needs write access, so drop it to read-only.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref so a push does not queue behind stale
+# work. Never cancel the branch's own base-branch protection runs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    name: build (node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # .nvmrc is the local pin; CI deliberately tests a range so a release
+        # never lands on a Node version we never exercised.
+        node: ['18', '20', '22']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -15,11 +33,17 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit dependencies
+        # There are no runtime dependencies; this guards the dev toolchain.
+        # --audit-level=high fails only on high/critical advisories so an
+        # unfixable transitive low-severity notice cannot block every PR.
+        run: npm audit --audit-level=high
 
       - name: Build the library
         run: npm run build
@@ -29,3 +53,57 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Coverage gate
+        # c8 is configured in package.json with check-coverage thresholds, so
+        # this step fails the build if coverage regresses below the ratchet.
+        run: npm run test:coverage
+
+  lint-workflows:
+    name: lint workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: actionlint
+        # Pinned to an immutable commit SHA, not a branch or floating tag.
+        #
+        # Two reasons this is a SHA and not "rhysd/actionlint@v1":
+        #  1. Fixes the broken ref. rhysd/actionlint publishes only semver tags
+        #     (v1.0.0 ... v1.7.12); there has never been a floating `v1` tag, so
+        #     `@v1` fails at the "Prepare all required actions" step with
+        #     "Unable to resolve action ... unable to find version `v1`" and the
+        #     job dies before actionlint ever runs. 914e7df2 is v1.7.12.
+        #  2. Hardens the supply chain. A mutable tag can be re-pointed at
+        #     unreviewed code by whoever controls the upstream repo, which turns
+        #     a routine CI run into arbitrary code execution with this
+        #     repository's GITHUB_TOKEN. A SHA cannot move.
+        # Dependabot tracks the github-actions ecosystem and will bump the SHA
+        # (and its trailing version comment) as new releases land.
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+
+  lint-dockerfile:
+    name: lint Dockerfile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: hadolint
+        # Third-party action, so it is SHA-pinned for the same reason as
+        # actionlint above: a mutable tag is a supply-chain takeover primitive.
+        # 54c9adba is v3.1.0.
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+  compose-config:
+    name: validate docker compose
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: docker compose config
+        run: docker compose config --quiet

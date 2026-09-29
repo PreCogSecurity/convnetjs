@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Test / coverage output
+coverage/
+.nyc_output/
+
 # Logs
 *.log
 npm-debug.log*
